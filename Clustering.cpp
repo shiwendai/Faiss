@@ -78,6 +78,8 @@ void Clustering::train (idx_t nx, const float *x_in, Index & index) {
     const float *x = x_in;
     ScopeDeleter<float> del1;
 
+    /// 如果训练集数量大于 k * max_points_per_centroid（即：质心数 * 每个聚类最大数量）时
+    /// 随机选取里面的 k * max_points_per_centroid 个数据作为训练集
     if (nx > k * max_points_per_centroid) {
         if (verbose)
             printf("Sampling a subset of %ld / %ld for training\n",
@@ -90,6 +92,8 @@ void Clustering::train (idx_t nx, const float *x_in, Index & index) {
             memcpy (x_new + i * d, x + perm[i] * d, sizeof(x_new[0]) * d);
         x = x_new;
         del1.set (x);
+    /// 如果训练集数量小于k * min_points_per_centroid（即：质心数 * 每个聚类至少数量）时
+    /// 打印警告日志，但程序正常运行
     } else if (nx < k * min_points_per_centroid) {
         fprintf (stderr,
                  "WARNING clustering %ld points to %ld centroids: "
@@ -97,7 +101,7 @@ void Clustering::train (idx_t nx, const float *x_in, Index & index) {
                  nx, k, idx_t(k) * min_points_per_centroid);
     }
 
-
+    /// 如果训练集大小等于k时，则直接把训练集数据拷贝给centroids作为质心
     if (nx == k) {
         if (verbose) {
             printf("Number of training points (%ld) same as number of "
@@ -119,9 +123,10 @@ void Clustering::train (idx_t nx, const float *x_in, Index & index) {
 
 
 
-
+    /// 用于保存在检索聚类过程中，检索集中每个数据点归属的类编号（即质心编号,如果质心数为255则编号为1只255）（因为检索集为nx，所以dis大小也为nx）
     idx_t * assign = new idx_t[nx];
     ScopeDeleter<idx_t> del (assign);
+    /// 用于保存在检索聚类过程中，检索集中每个数据点到归属类的质心的距离（因为检索集为nx，所以dis大小也为nx）
     float * dis = new float[nx];
     ScopeDeleter<float> del2(dis);
 
@@ -136,6 +141,7 @@ void Clustering::train (idx_t nx, const float *x_in, Index & index) {
        centroids.size() % d == 0,
        "size of provided input centroids not a multiple of dimension");
 
+    ///质心个数
     size_t n_input_centroids = centroids.size() / d;
 
     if (verbose && n_input_centroids > 0) {
@@ -150,6 +156,9 @@ void Clustering::train (idx_t nx, const float *x_in, Index & index) {
     }
     t0 = getmillisecs();
 
+    
+    /// 聚类算法核心代码
+    /// 对训练集做redo次聚类，并取redo次聚类中最优的质心
     for (int redo = 0; redo < nredo; redo++) {
 
         if (verbose && nredo > 1) {
@@ -158,38 +167,54 @@ void Clustering::train (idx_t nx, const float *x_in, Index & index) {
 
 
         // initialize remaining centroids with random points from the dataset
+        /// 从训练集中获取随机点（一个点即一个d维向量）初始化剩余的质心
         centroids.resize (d * k);
         std::vector<int> perm (nx);
 
+        /// 
         rand_perm (perm.data(), nx, seed + 1 + redo * 15486557L);
         for (int i = n_input_centroids; i < k ; i++)
             memcpy (&centroids[i * d], x + perm[i] * d,
                     d * sizeof (float));
 
+        /// 是否需要标准化的质心
         if (spherical) {
             fvec_renorm_L2 (d, k, centroids.data());
         }
 
+        /// 清理index 索引数据
         if (index.ntotal != 0) {
             index.reset();
         }
 
+        /// index 索引是否训练
         if (!index.is_trained) {
             index.train (k, centroids.data());
         }
 
+        /// 向index索引对象中插入数据
         index.add (k, centroids.data());
+        /// 计算检索集中各点到对相应质心距离和
         float err = 0;
+
+        /// 聚类迭代,获取质心
         for (int i = 0; i < niter; i++) {
             double t0s = getmillisecs();
+            /// 利用相似性搜索对nx个检索数据集x进行聚类，把数据集中的每个数据点的归属于某个类
+            /// 并把该数据点归属于某个类编号（即质心序号）保存在assign中，该检索数据集大小为nx，所以assign大小为nx
+            /// 该数据点到改质心的距离保存在dis中，该检索数据集大小为nx，所以dis大小为nx
+            /// 该数据点到改质心的距离保存在dis中，
             index.search (nx, x, 1, dis, assign);
             t_search_tot += getmillisecs() - t0s;
 
+
+            /// 计算检索集中各点到对相应质心距离和，并把他存入obj中
             err = 0;
             for (int j = 0; j < nx; j++)
                 err += dis[j];
             obj.push_back (err);
 
+            //根据聚类结果重新计算质心
             int nsplit = km_update_centroids (
                   x, centroids.data(),
                   assign, d, k, nx, frozen_centroids ? n_input_centroids : 0);
@@ -204,14 +229,17 @@ void Clustering::train (idx_t nx, const float *x_in, Index & index) {
                 fflush (stdout);
             }
 
+            /// 是否需要标准化的质心
             if (spherical)
                 fvec_renorm_L2 (d, k, centroids.data());
 
+            /// 重置并用最新的质心训练index索引对象
             index.reset ();
             if (update_index)
                 index.train (k, centroids.data());
 
             assert (index.ntotal == 0);
+            /// index训练完之后，在用质心初始化index
             index.add (k, centroids.data());
         }
         if (verbose) printf("\n");
