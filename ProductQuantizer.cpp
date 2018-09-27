@@ -153,12 +153,12 @@ ProductQuantizer::ProductQuantizer (size_t d, size_t M, size_t nbits):
 
 ProductQuantizer::ProductQuantizer ():
     d(0), M(1), nbits(0), assign_index(nullptr)
-{
-    set_derived_values ();
+{ 
+    set_derived_values ();  
 }
 
 
-
+//根据d, M and nbits计算dsub byte_per_idx code_size ksub的值
 void ProductQuantizer::set_derived_values () {
     // quite a few derived values
     FAISS_THROW_IF_NOT (d % M == 0);
@@ -229,6 +229,7 @@ static void init_hypercube_pca (int d, int nbits,
 
 }
 
+/// PQ算法训练
 void ProductQuantizer::train (int n, const float * x)
 {
     if (train_type != Train_shared) {

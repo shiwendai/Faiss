@@ -21,40 +21,55 @@
 namespace faiss {
 
 /** Product Quantizer. Implemented only for METRIC_L2 */
+/** Product Quantizer. 乘积量化算法实现 */
 struct ProductQuantizer {
 
+    // 输入向量集的大小
     size_t d;              ///< size of the input vectors
+    // 每个向量的子向量数量 
     size_t M;              ///< number of subquantizers
+    // 每个子量化索引的位数，用来定义每个子空间的聚类个数
     size_t nbits;          ///< number of bits per quantization index
 
     // values derived from the above
+    // 下面成员变量是由上面的成员变量计算得到的
+    // 子向量维数 dsub = d / M
     size_t dsub;           ///< dimensionality of each subvector
+    // 每个子向量的pq编码字节大小 byte_per_idx=(nbits + 7) / 8
     size_t byte_per_idx;   ///< nb bytes per code component (1 or 2)
+    // 索引向量字节大小 code_size = byte_per_idx * M
     size_t code_size;      ///< byte per indexed vector
+    // 每个子量化器的质心数 ksub = 1 << nbits 即 2^nbits
     size_t ksub;           ///< number of centroids for each subquantizer
+    // 是否打印日志
     bool verbose;          ///< verbose during training?
 
 
     /// initialization
     enum train_type_t {
         Train_default,
+        // 质心已经被初始化
         Train_hot_start,   ///< the centroids are already initialized
+        // ？
         Train_shared,      ///< share dictionary accross PQ segments
         Train_hypercube,   ///< intialize centroids with nbits-D hypercube
         Train_hypercube_pca,   ///< intialize centroids with nbits-D hypercube
     };
     train_type_t train_type;
 
+    //聚类参数，在聚类的时候被用到
     ClusteringParameters cp; ///< parameters used during clustering
 
-    /// if non-NULL, use this index for assignment (should be of size
-    /// d / M)
+    /// if non-NULL, use this index for assignment (should be of size d / M)
+    // ？
     Index *assign_index;
 
     /// Centroid table, size M * ksub * dsub
+    // 质心表：用来存储每个子空间的质心，大小为M * ksub * dsub，
     std::vector<float> centroids;
 
     /// return the centroids associated with subvector m
+    // 获取子向量空间m的质心，其中m表示0-M中的第m个子空间，i表每个子空间？
     float * get_centroids (size_t m, size_t i) {
         return &centroids [(m * ksub + i) * dsub];
     }
@@ -64,6 +79,7 @@ struct ProductQuantizer {
 
     // Train the product quantizer on a set of points. A clustering
     // can be set on input to define non-default clustering parameters
+    // 用一个数据集训练乘积量化算法，可以在输入上设置聚类以定义非默认聚类参数
     void train (int n, const float *x);
 
     ProductQuantizer(size_t d, /* dimensionality of the input vectors */
