@@ -38,7 +38,7 @@ int sgemm_ (const char *transa, const char *transb, FINTEGER *m, FINTEGER *
 namespace faiss {
 
 
-/* compute an estimator using look-up tables for typical values of M */
+
 template <typename CT, class C>
 void pq_estimators_from_tables_Mmul4 (int M, const CT * codes,
                                       size_t ncodes,
@@ -70,6 +70,14 @@ void pq_estimators_from_tables_Mmul4 (int M, const CT * codes,
 }
 
 
+/* compute an estimator using look-up tables for typical values of M */
+/* 
+  codes  : 数据库码本
+  ncodes : 数据库大小
+  dis_table : 子向量到每个质心的距离
+  ksub ：子空间质心个数
+  k ：堆保存前topk个查询结果
+*/
 template <typename CT, class C>
 void pq_estimators_from_tables_M4 (const CT * codes,
                                    size_t ncodes,
@@ -79,15 +87,16 @@ void pq_estimators_from_tables_M4 (const CT * codes,
                                    float * heap_dis,
                                    long * heap_ids)
 {
-
+    /// 计算查询向量到数据库向量的距离
     for (size_t j = 0; j < ncodes; j++) {
         float dis = 0;
         const float *dt = dis_table;
+        /// 计算查询向量到每个向量的距离
         dis  = dt[*codes++]; dt += ksub;
         dis += dt[*codes++]; dt += ksub;
         dis += dt[*codes++]; dt += ksub;
         dis += dt[*codes++];
-
+        ///并把满足条件的值存入堆中
         if (C::cmp (heap_dis[0], dis)) {
             heap_pop<C> (k, heap_dis, heap_ids);
             heap_push<C> (k, heap_dis, heap_ids, dis, j);
@@ -105,7 +114,7 @@ static inline void pq_estimators_from_tables (const ProductQuantizer * pq,
                                               float * heap_dis,
                                               long * heap_ids)
 {
-
+    /// 计算查询向量到数据库向量的距离
     if (pq->M == 4)  {
 
         pq_estimators_from_tables_M4<CT, C> (codes, ncodes,
@@ -114,6 +123,7 @@ static inline void pq_estimators_from_tables (const ProductQuantizer * pq,
         return;
     }
 
+    /// 计算查询向量到数据库向量的距离
     if (pq->M % 4 == 0) {
         pq_estimators_from_tables_Mmul4<CT, C> (pq->M, codes, ncodes,
                                             dis_table, pq->ksub, k,
@@ -121,6 +131,7 @@ static inline void pq_estimators_from_tables (const ProductQuantizer * pq,
         return;
     }
 
+    /// 计算查询向量到数据库向量的距离
     /* Default is relatively slow */
     const size_t M = pq->M;
     const size_t ksub = pq->ksub;
@@ -171,7 +182,7 @@ void ProductQuantizer::set_derived_values () {
     train_type = Train_default;
 }
 
-
+/// 质心拷贝
 void ProductQuantizer::set_params (const float * centroids_, int m)
 {
   memcpy (get_centroids(m, 0), centroids_,
@@ -179,22 +190,25 @@ void ProductQuantizer::set_params (const float * centroids_, int m)
 }
 
 
+/// 初始化质心
 static void init_hypercube (int d, int nbits,
                             int n, const float * x,
                             float *centroids)
 {
-
+    /// 把数据集中每个维度的值求和存入mean[j]
     std::vector<float> mean (d);
     for (int i = 0; i < n; i++)
         for (int j = 0; j < d; j++)
             mean [j] += x[i * d + j];
 
+    /// 对数据集中每个维度数据求平均值，并把各维度平均值的最大值存入maxm中
     float maxm = 0;
     for (int j = 0; j < d; j++) {
         mean [j] /= n;
         if (fabs(mean[j]) > maxm) maxm = fabs(mean[j]);
     }
 
+    /// 对每个质心的每个维度进行初始化
     for (int i = 0; i < (1 << nbits); i++) {
         float * cent = centroids + i * d;
         for (int j = 0; j < nbits; j++)
@@ -206,14 +220,16 @@ static void init_hypercube (int d, int nbits,
 
 }
 
+/// 用hypercube_pca方式初始化质心
 static void init_hypercube_pca (int d, int nbits,
                                 int n, const float * x,
                                 float *centroids)
 {
+    /// 对数据集进行pca降维
     PCAMatrix pca (d, nbits);
     pca.train (n, x);
 
-
+    /// 初始化质心
     for (int i = 0; i < (1 << nbits); i++) {
         float * cent = centroids + i * d;
         for (int j = 0; j < d; j++) {
@@ -229,9 +245,10 @@ static void init_hypercube_pca (int d, int nbits,
 
 }
 
-/// PQ算法训练
+/// PQ算法训练,其中 x 为训练集数据，n 为训练集大小
 void ProductQuantizer::train (int n, const float * x)
 {
+    /// 各个子空间不共享质心(即：需要对每个子空间进行训练)
     if (train_type != Train_shared) {
         train_type_t final_train_type;
         final_train_type = train_type;
@@ -244,30 +261,38 @@ void ProductQuantizer::train (int n, const float * x)
             }
         }
 
+        /// xslice用来存储训练集的第 m 段的数据集
         float * xslice = new float[n * dsub];
         ScopeDeleter<float> del (xslice);
+        /// 用训练集训练 M 个子空间（即：获取每个子空间的质心）
         for (int m = 0; m < M; m++) {
+            /// 把训练集的第 m 个段存入xslice
             for (int j = 0; j < n; j++)
                 memcpy (xslice + j * dsub,
                         x + j * d + m * dsub,
                         dsub * sizeof(float));
 
+            /// 创建一个聚类对象
             Clustering clus (dsub, ksub, cp);
 
             // we have some initialization for the centroids
+            // 初始化聚类质心
             if (final_train_type != Train_default) {
                 clus.centroids.resize (dsub * ksub);
             }
 
             switch (final_train_type) {
+            /// 使用hypercube方式初始化质心
             case Train_hypercube:
                 init_hypercube (dsub, nbits, n, xslice,
                                 clus.centroids.data ());
                 break;
+            /// 使用Train_hypercube_pca方式初始化质心
             case  Train_hypercube_pca:
                 init_hypercube_pca (dsub, nbits, n, xslice,
                                     clus.centroids.data ());
                 break;
+            /// 使用已训练的好的质心初始化质心
             case  Train_hot_start:
                 memcpy (clus.centroids.data(),
                         get_centroids (m, 0),
@@ -281,11 +306,13 @@ void ProductQuantizer::train (int n, const float * x)
                 printf ("Training PQ slice %d/%zd\n", m, M);
             }
             IndexFlatL2 index (dsub);
+            /// 训练质心
             clus.train (n, xslice, assign_index ? *assign_index : index);
+            /// 把训练好的质心拷贝到ProductQuantizer的centroids中，然后训练完成
             set_params (clus.centroids.data(), m);
         }
 
-
+    /// 如果train_type == Train_shared，表示用数据集中所有子向量训练 k 个公共的质心
     } else {
 
         Clustering clus (dsub, ksub, cp);
@@ -297,7 +324,9 @@ void ProductQuantizer::train (int n, const float * x)
 
         IndexFlatL2 index (dsub);
 
+        // 用数据集中所有子向量训练 k 个公共的质心
         clus.train (n * M, x, assign_index ? *assign_index : index);
+        // 所有每个子空间质心是一样的
         for (int m = 0; m < M; m++) {
             set_params (clus.centroids.data(), m);
         }
@@ -306,17 +335,25 @@ void ProductQuantizer::train (int n, const float * x)
 }
 
 
+/// 对一个向量进行product quantizer 编码 即：编码过程 并把编码结果存入code中
 void ProductQuantizer::compute_code (const float * x, uint8_t * code)  const
 {
+    /// 创建存放一个向量 x 到 ksub 个质心中的距离
     float distances [ksub];
     for (size_t m = 0; m < M; m++) {
+        /// 用来保存向量 x 到 ksub 个质心中的距离的最短距离
         float mindis = 1e20;
+        /// 用来保存向量 x 最近质心的索引
         int idxm = -1;
+
+        /// 获取子向量 xsub
         const float * xsub = x + m * dsub;
 
+        /// 计算子向量到 xsub 到对应子空间质心的距离，并把各个距离保存到distance中
         fvec_L2sqr_ny (distances, xsub, get_centroids(m, 0), dsub, ksub);
 
         /* Find best centroid */
+        /// 从distance中获取最短距离和质心编号
         size_t i;
         for (i = 0; i < ksub; i++) {
             float dis = distances [i];
@@ -325,6 +362,8 @@ void ProductQuantizer::compute_code (const float * x, uint8_t * code)  const
                 idxm = i;
             }
         }
+
+        /// 保存向量编码结果到code中
         switch (byte_per_idx) {
           case 1:  code[m] = (uint8_t) idxm;  break;
           case 2:  ((uint16_t *) code)[m] = (uint16_t) idxm;  break;
@@ -333,6 +372,7 @@ void ProductQuantizer::compute_code (const float * x, uint8_t * code)  const
 
 }
 
+/// 对单个pq码进行解码 即：根据pq码获取 向量
 void ProductQuantizer::decode (const uint8_t *code, float *x) const
 {
     if (byte_per_idx == 1) {
@@ -349,7 +389,7 @@ void ProductQuantizer::decode (const uint8_t *code, float *x) const
     }
 }
 
-
+/// 对多个pq码进行解码
 void ProductQuantizer::decode (const uint8_t *code, float *x, size_t n) const
 {
     for (size_t i = 0; i < n; i++) {
@@ -357,7 +397,7 @@ void ProductQuantizer::decode (const uint8_t *code, float *x, size_t n) const
     }
 }
 
-
+// 根据距离池得到pq码
 void ProductQuantizer::compute_code_from_distance_table (const float *tab,
                                                          uint8_t *code) const
 {
@@ -380,21 +420,27 @@ void ProductQuantizer::compute_code_from_distance_table (const float *tab,
     }
 }
 
+/// 对多个向量进行product quantizer 编码 
 void ProductQuantizer::compute_codes (const float * x,
                                       uint8_t * codes,
                                       size_t n)  const
 {
+    /// 如果向量小于16维则直接计算pq码
     if (dsub < 16) { // simple direct computation
 
 #pragma omp parallel for
         for (size_t i = 0; i < n; i++)
             compute_code (x + i * d, codes + i * code_size);
 
+    /// 否则间接计算pq码,先计算距离池，然后再根据距离池计算pq码
     } else { // worthwile to use BLAS
+        /// 创建一个大小为 n * ksub * M 的距离池
         float *dis_tables = new float [n * ksub * M];
         ScopeDeleter<float> del (dis_tables);
+        /// 计算距离池
         compute_distance_tables (n, x, dis_tables);
 
+        /// 根据距离池计算pq码
 #pragma omp parallel for
         for (size_t i = 0; i < n; i++) {
             uint8_t * code = codes + i * code_size;
@@ -405,12 +451,14 @@ void ProductQuantizer::compute_codes (const float * x,
 }
 
 
+/// 用 L2 距离计算各子向量到对应子空间的质心的距离
 void ProductQuantizer::compute_distance_table (const float * x,
                                                float * dis_table) const
 {
     size_t m;
-
+    //计算各子向量到对应子空间的质心的距离
     for (m = 0; m < M; m++) {
+        /// 用 L2 距离计算一个向量到ksub个质心的距离，并把格局里保存到dis_table中
         fvec_L2sqr_ny (dis_table + m * ksub,
                        x + m * dsub,
                        get_centroids(m, 0),
@@ -419,6 +467,7 @@ void ProductQuantizer::compute_distance_table (const float * x,
     }
 }
 
+/// 用 內积 距离计算各子向量到对应子空间的质心的距离
 void ProductQuantizer::compute_inner_prod_table (const float * x,
                                                  float * dis_table) const
 {
@@ -434,6 +483,7 @@ void ProductQuantizer::compute_inner_prod_table (const float * x,
 }
 
 
+/// 用 L2 距离计算数据集x各个子向量到对应子空间质心的距离
 void ProductQuantizer::compute_distance_tables (
            size_t nx,
            const float * x,
@@ -459,6 +509,7 @@ void ProductQuantizer::compute_distance_tables (
     }
 }
 
+/// 用 內积 距离计算数据集x各个子向量到对应子空间质心的距离
 void ProductQuantizer::compute_inner_prod_tables (
            size_t nx,
            const float * x,
@@ -506,9 +557,11 @@ static void pq_knn_search_with_tables (
 #pragma omp parallel for
     for (size_t i = 0; i < nx; i++) {
         /* query preparation for asymmetric search: compute look-up tables */
+        /* 非对称搜索的查询准备：计算查找表 */
         const float* dis_table = dis_tables + i * ksub * M;
 
         /* Compute distances and keep smallest values */
+        /* 计算距离并保持最小值 */
         long * __restrict heap_ids = res->ids + i * k;
         float * __restrict heap_dis = res->val + i * k;
 
@@ -535,6 +588,14 @@ static inline void pq_estimators_from_tables (const ProductQuantizer * pq,
                                               float * heap_dis,
                                               long * heap_ids)
     */
+/** perform a search (L2 distance)
+ * @param x        查询向量, size nx * d
+ * @param nx       查询向量集大小
+ * @param codes    数据库码本, size ncodes * byte_per_idx
+ * @param ncodes   数据库码本大小
+ * @param res      存储结果的堆数组 (nh == nx)
+ * @param init_finalize_heap  initialize heap (input) and sort (output)?
+ */
 void ProductQuantizer::search (const float * __restrict x,
                                size_t nx,
                                const uint8_t * codes,
@@ -543,12 +604,13 @@ void ProductQuantizer::search (const float * __restrict x,
                                bool init_finalize_heap) const
 {
     FAISS_THROW_IF_NOT (nx == res->nh);
+    ///计算查询向量集到质心的距离 
     float * dis_tables = new float [nx * ksub * M];
     ScopeDeleter<float> del(dis_tables);
     compute_distance_tables (nx, x, dis_tables);
 
     if (byte_per_idx == 1) {
-
+        
         pq_knn_search_with_tables<uint8_t, CMax<float, long> > (
              this, dis_tables, codes, ncodes, res, init_finalize_heap);
 

@@ -50,7 +50,7 @@ struct ProductQuantizer {
         Train_default,
         // 质心已经被初始化
         Train_hot_start,   ///< the centroids are already initialized
-        // ？
+        // 共享PQ段质心（即：用之前训练好的质心初始化聚类质心，如果不共享则用随机数初始化质心）
         Train_shared,      ///< share dictionary accross PQ segments
         Train_hypercube,   ///< intialize centroids with nbits-D hypercube
         Train_hypercube_pca,   ///< intialize centroids with nbits-D hypercube
@@ -61,7 +61,7 @@ struct ProductQuantizer {
     ClusteringParameters cp; ///< parameters used during clustering
 
     /// if non-NULL, use this index for assignment (should be of size d / M)
-    // ？
+    // 如果assign_index为非NULL，则使用此索引进行分配(说明index已经训练好，只需往assign_index add数据)
     Index *assign_index;
 
     /// Centroid table, size M * ksub * dsub
@@ -69,7 +69,7 @@ struct ProductQuantizer {
     std::vector<float> centroids;
 
     /// return the centroids associated with subvector m
-    // 获取子向量空间m的质心，其中m表示0-M中的第m个子空间，i表每个子空间？
+    // 获取子向量空间m的质心，其中m表示[0-M)中的第m个子空间，i表示每个子空间[0-ksub)中的第 i 个质心
     float * get_centroids (size_t m, size_t i) {
         return &centroids [(m * ksub + i) * dsub];
     }
@@ -95,9 +95,11 @@ struct ProductQuantizer {
     void set_params (const float * centroids, int m);
 
     /// Quantize one vector with the product quantizer
+    /// 对一个向量进行product quantizer 编码 即：编码过程 并把编码结果存入code中
     void compute_code (const float * x, uint8_t * code) const ;
 
     /// same as compute_code for several vectors
+    /// 对多个向量进行product quantizer 编码 
     void compute_codes (const float * x,
                         uint8_t * codes,
                         size_t n) const ;
