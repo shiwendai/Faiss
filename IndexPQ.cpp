@@ -49,14 +49,17 @@ IndexPQ::IndexPQ ()
     encode_signs = false;
 }
 
-
+// 索引模型训练
 void IndexPQ::train (idx_t n, const float *x)
-{
+{   
+    // 使用标准PQ算法训练
     if (!do_polysemous_training) {        // standard training
         pq.train(n, x);
+    // 
     } else {
+        // 多义训练 
         idx_t ntrain_perm = polysemous_training.ntrain_permutation;
-
+        // 使用1/4的训练点进行优化，最大值ntrain_permutation。 如果ntrain_permutation == 0：在质心上训练
         if (ntrain_perm > n / 4)
             ntrain_perm = n / 4;
         if (verbose) {
@@ -65,30 +68,37 @@ void IndexPQ::train (idx_t n, const float *x)
                     n - ntrain_perm, ntrain_perm,
                     ntrain_perm == 0 ? "centroids" : "these");
         }
+        // 先用标准训练处质心
         pq.train(n - ntrain_perm, x);
-
+        /// reorder the centroids so that the Hamming distace becomes a
+        /// good approximation of the SDC(symmetric product quantizer) distance (called by train)
+        /// 重新排序质心，使汉明距离成为SDC距离的良好近似值
         polysemous_training.optimize_pq_for_hamming (
             pq, ntrain_perm, x + (n - ntrain_perm) * d);
     }
     is_trained = true;
 }
 
-
+// 插入n个向量数据
 void IndexPQ::add (idx_t n, const float *x)
 {
     FAISS_THROW_IF_NOT (is_trained);
+    //增加n个空间
     codes.resize ((n + ntotal) * pq.code_size);
+    // 对数据集x进行pq编码
     pq.compute_codes (x, &codes[ntotal * pq.code_size], n);
+    // 增加数据集大小
     ntotal += n;
 }
 
-
+// 删除索引
 long IndexPQ::remove_ids (const IDSelector & sel)
 {
     idx_t j = 0;
     for (idx_t i = 0; i < ntotal; i++) {
         if (sel.is_member (i)) {
             // should be removed
+            // 删除：直接用后面的数据替换删除位置开始的数据
         } else {
             if (i > j) {
                 memmove (&codes[pq.code_size * j], &codes[pq.code_size * i], pq.code_size);
@@ -104,13 +114,16 @@ long IndexPQ::remove_ids (const IDSelector & sel)
     return nremove;
 }
 
-
+// 索引重置
 void IndexPQ::reset()
 {
+    // 清空码本
     codes.clear();
+    // 重置数据量为0
     ntotal = 0;
 }
 
+// 反编码
 void IndexPQ::reconstruct_n (idx_t i0, idx_t ni, float *recons) const
 {
     FAISS_THROW_IF_NOT (ni == 0 || (i0 >= 0 && i0 + ni <= ntotal));
@@ -120,7 +133,7 @@ void IndexPQ::reconstruct_n (idx_t i0, idx_t ni, float *recons) const
     }
 }
 
-
+// 反编码
 void IndexPQ::reconstruct (idx_t key, float * recons) const
 {
     FAISS_THROW_IF_NOT (key >= 0 && key < ntotal);
@@ -145,8 +158,9 @@ void IndexPQ::search (idx_t n, const float *x, idx_t k,
                            float *distances, idx_t *labels) const
 {
     FAISS_THROW_IF_NOT (is_trained);
+    // 标准PQ查询
     if (search_type == ST_PQ) {  // Simple PQ search
-
+        
         if (metric_type == METRIC_L2) {
             float_maxheap_array_t res = {
                 size_t(n), size_t(k), labels, distances };
@@ -158,7 +172,7 @@ void IndexPQ::search (idx_t n, const float *x, idx_t k,
         }
         indexPQ_stats.nq += n;
         indexPQ_stats.ncode += n * ntotal;
-
+    // 
     } else if (search_type == ST_polysemous ||
                search_type == ST_polysemous_generalize) {
 

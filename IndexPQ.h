@@ -24,12 +24,14 @@ namespace faiss {
 
 /** Index based on a product quantizer. Stored vectors are
  * approximated by PQ codes. */
+/* 基于乘积量化的索引。 存储的向量由PQ码近似表示 */
 struct IndexPQ: Index {
 
     /// The product quantizer used to encode the vectors
+    /// 乘积量化器，用来给向量集进行pq编码
     ProductQuantizer pq;
 
-    /// Codes. Size ntotal * pq.code_size
+    /// 码本  Codes. Size ntotal * pq.code_size(码字大小)
     std::vector<uint8_t> codes;
 
     /** Constructor.
@@ -65,14 +67,16 @@ struct IndexPQ: Index {
     long remove_ids(const IDSelector& sel) override;
 
     /******************************************************
-     * Polysemous codes implementation
+     * Polysemous codes implementation 多义代码实现
      ******************************************************/
     bool do_polysemous_training; ///< false = standard PQ
 
     /// parameters used for the polysemous training
+    /// 用于多义训练的参数
     PolysemousTraining polysemous_training;
 
     /// how to perform the search in search_core
+    /// 如何在search_core中执行搜索
     enum Search_type_t {
         ST_PQ,             ///< asymmetric product quantizer (default)
         ST_HE,             ///< Hamming distance on codes
@@ -86,12 +90,15 @@ struct IndexPQ: Index {
 
     // just encode the sign of the components, instead of using the PQ encoder
     // used only for the queries
+    // 只编码组件的符号，而不是使用仅用于查询的PQ编码器
     bool encode_signs;
 
     /// Hamming threshold used for polysemy
+    /// 用于多义词的汉明阈值
     int polysemous_ht;
 
     // actual polysemous search
+    // 实际的多义搜索
     void search_core_polysemous (idx_t n, const float *x, idx_t k,
                                float *distances, idx_t *labels) const;
 
@@ -99,11 +106,15 @@ struct IndexPQ: Index {
     /// computing the result, just get the histogram of Hamming
     /// distances. May be computed on a provided dataset if xb != NULL
     /// @param dist_histogram (M * nbits + 1)
+    ///
+    /// 准备查询多义搜索，但不是计算结果，只需获得汉明距离的直方图。 
+    /// 如果xb！= NULL，则可以在提供的数据集上计算
     void hamming_distance_histogram (idx_t n, const float *x,
                                      idx_t nb, const float *xb,
                                      long *dist_histogram);
 
     /** compute pairwise distances between queries and database
+     *  计算查询和数据库之间的成对距离
      *
      * @param n    nb of query vectors
      * @param x    query vector, size n * d
@@ -117,6 +128,7 @@ struct IndexPQ: Index {
 
 /// statistics are robust to internal threading, but not if
 /// IndexPQ::search is called by multiple threads
+/// 统计信息对内部线程是健壮的，但如果多个线程调用IndexPQ :: search则不行
 struct IndexPQStats {
     size_t nq;       // nb of queries run
     size_t ncode;    // nb of codes visited
@@ -132,7 +144,9 @@ extern IndexPQStats indexPQ_stats;
 
 
 /** Quantizer where centroids are virtual: they are the Cartesian
- *  product of sub-centroids. */
+ *  product of sub-centroids.
+ *  质心是虚拟的量化器：它们是子质心的笛卡尔积。
+ */
 struct MultiIndexQuantizer: Index  {
     ProductQuantizer pq;
 
