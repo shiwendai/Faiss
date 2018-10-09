@@ -622,6 +622,16 @@ void ProductQuantizer::search (const float * __restrict x,
 
 }
 
+
+
+/** perform a search (inner product distance)
+* @param x        查询向量, size nx * d
+* @param nx       查询向量集大小
+* @param codes    数据库码本, size ncodes * byte_per_idx
+* @param ncodes   数据库码本大小
+* @param res      存储结果的堆数组 (nh == nx)
+* @param init_finalize_heap  initialize heap (input) and sort (output)?
+*/
 void ProductQuantizer::search_ip (const float * __restrict x,
                                size_t nx,
                                const uint8_t * codes,
@@ -647,11 +657,12 @@ void ProductQuantizer::search_ip (const float * __restrict x,
 }
 
 
-
+//求平方
 static float sqr (float x) {
     return x * x;
 }
 
+// 计算质心之间的对称距离 如：
 void ProductQuantizer::compute_sdc_table ()
 {
     sdc_table.resize (M * ksub * ksub);
@@ -669,12 +680,20 @@ void ProductQuantizer::compute_sdc_table ()
                 const float *centj = cents + j * dsub;
                 for (int k = 0; k < dsub; k++)
                     accu += sqr (centi[k] - centj[k]);
-                dis_tab [i + j * ksub] = accu;
+                dis_tab [i + j * ksub] = accu;   // dis += tab[bcode[m] + qcode[m] * ksub];
             }
         }
     }
 }
 
+/** perform a search (symetic distance)
+* @param qcodes   查询向量码本, size nx * d
+* @param nq       查询向量集大小
+* @param bcodes    数据库码本, size ncodes * byte_per_idx
+* @param ncodes   数据库码本大小
+* @param res      存储结果的堆数组 (nh == nx)
+* @param init_finalize_heap  initialize heap (input) and sort (output)?
+*/
 void ProductQuantizer::search_sdc (const uint8_t * qcodes,
                      size_t nq,
                      const uint8_t * bcodes,
@@ -703,7 +722,7 @@ void ProductQuantizer::search_sdc (const uint8_t * qcodes,
             float dis = 0;
             const float * tab = sdc_table.data();
             for (int m = 0; m < M; m++) {
-                dis += tab[bcode[m] + qcode[m] * ksub];
+                dis += tab[bcode[m] + qcode[m] * ksub];  // dis_tab [i + j * ksub] = accu;
                 tab += ksub * ksub;
             }
             if (dis < heap_dis[0]) {

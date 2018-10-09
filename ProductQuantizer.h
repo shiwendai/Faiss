@@ -37,7 +37,7 @@ struct ProductQuantizer {
     size_t dsub;           ///< dimensionality of each subvector
     // 每个子向量的pq编码字节大小 byte_per_idx=(nbits + 7) / 8
     size_t byte_per_idx;   ///< nb bytes per code component (1 or 2)
-    // 索引向量字节大小 code_size = byte_per_idx * M
+    // 码字大小(即单个向量编码后的pq码大小) code_size = byte_per_idx * M
     size_t code_size;      ///< byte per indexed vector
     // 每个子量化器的质心数 ksub = 1 << nbits 即 2^nbits
     size_t ksub;           ///< number of centroids for each subquantizer
