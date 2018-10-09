@@ -35,9 +35,12 @@ namespace faiss {
 SimulatedAnnealingParameters::SimulatedAnnealingParameters ()
 {
     // set some reasonable defaults for the optimization
+    // 为优化设置一些合理的默认值
     init_temperature = 0.7;
+    // 0.9 的 1/500.幂
     temperature_decay = pow (0.9, 1/500.);
     // reduce by a factor 0.9 every 500 it
+    // 每500次迭代减少0.9倍
     n_iter = 500000;
     n_redo = 2;
     seed = 123;
@@ -48,6 +51,7 @@ SimulatedAnnealingParameters::SimulatedAnnealingParameters ()
 
 // what would the cost update be if iw and jw were swapped?
 // default implementation just computes both and computes the difference
+// 如果iw和jw被交换，成本更新会是什么？默认实现只计算两者并计算差异
 double PermutationObjective::cost_update (
         const int *perm, int iw, int jw) const
 {
@@ -89,22 +93,31 @@ double SimulatedAnnealingOptimizer::run_optimization (int * best_perm)
     double min_cost = 1e30;
 
     // just do a few runs of the annealing and keep the lowest output cost
+    // 做n_redo次退火并保持最低的输出成本
     for (int it = 0; it < n_redo; it++) {
         std::vector<int> perm(n);
+        // 初始化排列perm为1...n
         for (int i = 0; i < n; i++)
             perm[i] = i;
+        
+        // 随机排列perm
          if (init_random) {
             for (int i = 0; i < n; i++) {
                 int j = i + rnd->rand_int (n - i);
                 std::swap (perm[i], perm[j]);
             }
         }
+
+         // 利用模拟退火算法的到最优排列,并返回损失值cost
          float cost = optimize (perm.data());
+         
         if (logfile) fprintf (logfile, "\n");
         if(verbose > 1) {
             printf ("    optimization run %d: cost=%g %s\n",
                     it, cost, cost < min_cost ? "keep" : "");
         }
+
+        // 如果损失值cost < min_cost 则保留重排后的排列perm和cost
         if (cost < min_cost) {
             memcpy (best_perm, perm.data(), sizeof(perm[0]) * n);
             min_cost = cost;
@@ -115,15 +128,23 @@ double SimulatedAnnealingOptimizer::run_optimization (int * best_perm)
 
 // perform the optimization loop, starting from and modifying
 // permutation in-place
+// 模拟退火算法：执行优化循环，就地开始并修改排列
 double SimulatedAnnealingOptimizer::optimize (int *perm)
 {
+    //计算初始排列perm的损失值cost
     double cost = init_cost = obj->compute_cost (perm);
     int log2n = 0;
+    // 获取n的二进制位的数量(n=256=2^8则log2n = 8)
     while (!(n <= (1 << log2n))) log2n++;
+    //接受差排列的概率
     double temperature = init_temperature;
+    // n_swap交换的次数统计， n_hot退火次数统计
      int n_swap = 0, n_hot = 0;
+    
     for (int it = 0; it < n_iter; it++) {
+        // 每次迭代temperature衰减temperature_decay
         temperature = temperature * temperature_decay;
+        // 随机获取新的排列元素 iw、jw
         int iw, jw;
         if (only_bit_flips) {
             iw = rnd->rand_int (n);
@@ -133,7 +154,12 @@ double SimulatedAnnealingOptimizer::optimize (int *perm)
             jw = rnd->rand_int (n - 1);
             if (jw == iw) jw++;
         }
+
+         // delta_cost = iw、jw交换后的新排列的损失值 - 交换前的损失值
          double delta_cost = obj->cost_update (perm, iw, jw);
+
+         // 如果delta_cost < 0 或 随机接受这个差值的概率为真 即，rnd->rand_float () < temperature
+         // 则保留新排列
          if (delta_cost < 0 || rnd->rand_float () < temperature) {
             std::swap (perm[iw], perm[jw]);
             cost += delta_cost;
@@ -175,7 +201,8 @@ static inline int hamming_dis (uint64_t a, uint64_t b)
 
 namespace {
 
-/// optimize permutation to reproduce a distance table with Hamming distances
+/// optimize permutation to reproduce a distance table with Hamming distances
+/// 优化置换以再现具有汉明距离的距离表
 struct ReproduceWithHammingObjective : PermutationObjective {
     int nbits;
     double dis_weight_factor;
@@ -194,6 +221,7 @@ struct ReproduceWithHammingObjective : PermutationObjective {
     std::vector<double> weights;    // weights for each distance (size n^2)
 
     // cost = quadratic difference between actual distance and Hamming distance
+    // cost = 实际距离与汉明距离之间的二次差
     double compute_cost(const int* perm) const override {
       double cost = 0;
       for (int i = 0; i < n; i++) {
@@ -765,7 +793,6 @@ PolysemousTraining::PolysemousTraining ()
 void PolysemousTraining::optimize_reproduce_distances (
        ProductQuantizer &pq) const
 {
-
     int dsub = pq.dsub;
 
     int n = pq.ksub;
@@ -776,9 +803,10 @@ void PolysemousTraining::optimize_reproduce_distances (
         std::vector<double> dis_table;
 
         // printf ("Optimizing quantizer %d\n", m);
-
+        // 得到子空间的质心
         float * centroids = pq.get_centroids (m, 0);
 
+        //计算质心之间的距离dis_table size: n×n
         for (int i = 0; i < n; i++) {
             for (int j = 0; j < n; j++) {
                 dis_table.push_back (fvec_L2sqr (centroids + i * dsub,
@@ -786,7 +814,7 @@ void PolysemousTraining::optimize_reproduce_distances (
                                                  dsub));
             }
         }
-
+        
         std::vector<int> perm (n);
         ReproduceWithHammingObjective obj (
                nbits, dis_table,
